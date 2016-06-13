@@ -1,17 +1,69 @@
 package com.theironyard;
 
+import org.h2.tools.Server;
 import spark.ModelAndView;
 import spark.Session;
 import spark.Spark;
 import spark.template.mustache.MustacheTemplateEngine;
 
+import java.sql.*;
+import java.util.ArrayList;
 import java.util.HashMap;
 
 public class Main {
 
+    public static void editRestaurant (Connection conn, int id, String name, String location, int rating, String comment) throws SQLException {
+        PreparedStatement stmt = conn.prepareStatement("UPDATE restaurants SET name = ?, location = ?, rating = ?, comment = ? WHERE id = ?");
+        stmt.setString(1, name);
+        stmt.setString(2, location);
+        stmt.setInt(3, rating);
+        stmt.setString(4, comment);
+        stmt.setInt(5, id);
+        stmt.execute();
+    }
+
+
+
+    public static void insertRestaurant (Connection conn, String name, String location, int rating, String comment) throws SQLException {
+        PreparedStatement stmt = conn.prepareStatement("INSERT INTO restaurants VALUES (NULL, ?, ?, ?, ?)");
+        stmt.setString(1, name);
+        stmt.setString(2, location);
+        stmt.setInt(3, rating);
+        stmt.setString(4, comment);
+        stmt.execute();
+    }
+
+    public static void deleteRestaurant(Connection conn, int id) throws SQLException {
+        PreparedStatement stmt = conn.prepareStatement("DELETE FROM restaurants WHERE id = ?");
+        stmt.setInt(1, id);
+        stmt.execute();
+    }
+
+    public static ArrayList<Restaurant> selectRestaurant(Connection conn) throws SQLException {
+        PreparedStatement stmt = conn.prepareStatement("SELECT * FROM restaurants");
+        ResultSet results = stmt.executeQuery();
+        ArrayList<Restaurant> restaurants = new ArrayList<>();
+        while (results.next()){
+            int id = results.getInt("id");
+            String name = results.getString("name");
+            String location = results.getString("location");
+            int rating = results.getInt("rating");
+            String comment = results.getString("comment");
+            Restaurant restaurant = new Restaurant(id, name, location, rating, comment);
+            restaurants.add(restaurant);
+            }
+        return restaurants;
+        }
+
     static HashMap<String, User> users = new HashMap<>();
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws SQLException {
+        Server.createWebServer().start();
+        Connection conn = DriverManager.getConnection("jdbc:h2:./main");
+
+        Statement stmt = conn.createStatement();
+        stmt.execute("CREATE TABLE IF NOT EXISTS restaurants (id IDENTITY, name VARCHAR, location VARCHAR, rating INT, comment VARCHAR)");
+
         Spark.init();
         Spark.get(
                 "/",
@@ -25,6 +77,7 @@ public class Main {
                     }
                     else {
                         User user = users.get(username);
+                        user.restaurants = selectRestaurant(conn);
                         m.put("restaurants", user.restaurants);
 
                         return new ModelAndView(m, "home.html");
@@ -79,8 +132,12 @@ public class Main {
                         throw new Exception("User does not exist");
                     }
 
+                    insertRestaurant(conn, name, location, rating, comment);
+
                     Restaurant r = new Restaurant(name, location, rating, comment);
                     user.restaurants.add(r);
+
+
 
                     response.redirect("/");
                     return "";
@@ -97,7 +154,7 @@ public class Main {
                 }
         );
         Spark.post(
-                "/delete-restaturant",
+                "/delete-restaurant",
                 (request, response) -> {
                     Session session = request.session();
                     String username = session.attribute("username");
@@ -106,15 +163,36 @@ public class Main {
                     }
                     int id = Integer.valueOf(request.queryParams("id"));
 
-                    User user = users.get(username);
-                    if (id <= 0 || id - 1 >= user.restaurants.size() ) {
-                        throw new Exception("invalid id");
-                    }
-                    user.restaurants.remove(id - 1);
+                    //User user = users.get(username);
+                    //if (id < 0 || id - 1 >= user.restaurants.size() ) {
+                    //    throw new Exception("invalid id");
+                    //}
+                    //user.restaurants.remove(id - 1);
+
+                    deleteRestaurant(conn, id);
 
                     response.redirect("/");
                     return "";
                 }
+        );
+        Spark.post(
+                "/edit-restaurant",
+                ((request, response) -> {
+                    Session session = request.session();
+                    String username = session.attribute("username");
+                    if (username == null) {
+                        throw new Exception("not logged in");
+                    }
+                    int id = Integer.valueOf(request.queryParams("id"));
+                    String name = request.queryParams("name");
+                    String location = request.queryParams("location");
+                    int rating = Integer.valueOf(request.queryParams("rating"));
+                    String comment = request.queryParams("comments");
+                    editRestaurant(conn, id, name, location, rating, comment);
+
+                    response.redirect("/");
+                    return "";
+                })
         );
     }
 }
